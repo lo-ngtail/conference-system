@@ -1,0 +1,140 @@
+# 技術スタック選定
+
+| 技術スタック         | 技術                 |
+| -------------------- | -------------------- |
+| フロントエンド       | Next.js (TypeScript) |
+| バックエンド         | Next.js (TypeScript) |
+| データベース         | PostgreSQL           |
+| コンテナ技術         | Docker               |
+| オーケストレーション | Kubernetes           |
+
+# アーキテクチャ設計
+* SPOF (単一障害点) を考慮した冗長化構成 (ロードバランサー + 複数台サーバー + 冗長化 DB) を検討します。
+```mermaid
+graph TD
+    subgraph 外部
+        Client[Webブラウザ]
+    end
+
+    Client -- HTTPS --> Ingress[Ingress Controller]
+
+    subgraph Kubernetes Cluster
+        Ingress -- HTTP --> ServiceWeb[Service - Web]
+        ServiceWeb --> PodWeb1[Pod - Web Server 1]
+        ServiceWeb --> PodWeb2[Pod - Web Server 2]
+        PodWeb1 --> ServiceAP[Service - AP]
+        PodWeb2 --> ServiceAP
+
+        ServiceAP --> PodAP1[Pod - AP Server 1]
+        ServiceAP --> PodAP2[Pod - AP Server 2]
+
+
+        PodAP1 --> ServiceDB[Service - DB]
+        PodAP2 --> ServiceDB
+
+        ServiceDB --> StatefulSetDB[StatefulSet: DB]
+          StatefulSetDB --o PodDB1[Pod - DB Server 1 Master]
+          StatefulSetDB --o PodDB2[Pod - DB Server 2 Slave]
+
+        PodDB1 -.-> PV1[PersistentVolume - DB Master]
+        PodDB2 -.-> PV2[PersistentVolume - DB Slave]
+        PV1 --> PVC1[PersistentVolumeClaim]
+        PV2 --> PVC2[PersistentVolumeClaim]
+    end
+   
+    PVC1 --> Storage[Storage Class/Cloud Storage]
+    PVC2 --> Storage
+```
+
+# データベース設計
+機能要件に基づき、必要なテーブルを設計します。
+
+## participants
+| カラム名 | データ型 | 制約 | 説明 |
+| :------------------------ | :-------------- | :------------- |:------------ |
+| id | SERIAL | PRIMARY KEY | 参加者ID (自動採番) |
+| name | VARCHAR(255) | NOT NULL | 氏名 |
+| affiliation | VARCHAR(255) | NOT NULL | 所属 |
+| email |VARCHAR(255) | NOT NULL, UNIQUE | メールアドレス |
+| phone | VARCHAR(20) | | 電話番号 |
+| title | VARCHAR(255) | | 役職 |
+| privacy_policy_agreed | BOOLEAN | NOT NULL | プライバシーポリシー同意フラグ |
+| registration_date | TIMESTAMP | NOT NULL | 登録日時 |s
+| updated_at | TIMESTAMP | | 更新日時 |
+| deleted_at | TIMESTAMP | | 論理削除日時 |
+
+# API 設計
+フロントエンド・バックエンド間の API (RESTful API, JSON 形式) を設計します。
+
+* エンドポイント
+    * POST /api/register
+* リクエスト
+     ```
+    {
+        "name": "氏名",
+        "affiliation": "所属",
+        "email": "メールアドレス",
+        "phone": "電話番号",
+        "title": "役職",
+        "privacy_policy_agreed": true
+    }
+    ```
+* レスポンス
+    ```
+    {
+        "status": "success",
+        "message": "登録が完了しました。",
+        "registration_id": "ユニークな登録ID"
+    }
+    ```
+
+
+# UI デザイン設計
+クライアントのUIを設計します。
+
+## 登録画面
+|項目|値|必須|
+|-|-|-|
+|氏名|テキスト形式|yes|
+|所属|テキスト形式|yes|
+|メールアドレス|メールアドレス形式|yes|
+|電話番号|電話番号形式|no|
+|役職|テキスト形式|no|
+|プライバシーポリシー同意|チェックボックス形式|yes|
+|登録ボタン|テキスト形式で「登録」|none|
+
+## 登録完了画面
+|項目|値|必須|
+|-|-|-|
+|登録完了メッセージ|テキスト形式で「登録完了」|none|
+|登録内容の確認|登録画面で入力した内容を記載|none|
+
+## エラー画面
+|項目|値|必須|
+|-|-|-|
+|エラー|エラー内容を表示|none|
+
+# 機能
+## 登録機能
+```mermaid
+sequenceDiagram
+    participant Client as 参加者 (Webブラウザ)
+    participant Frontend as フロントエンド (Next.js)
+    participant Backend as バックエンド (Next.js API)
+    participant Database as データベース (PostgreSQL)
+
+    Client->>Frontend: 登録ページへアクセス
+    Frontend->>Client: 登録フォーム表示
+    Client->>Frontend: 登録情報を入力
+    Client->>Frontend: 登録ボタンをクリック
+    Frontend->>Backend: /api/register へリクエスト (POST, JSON形式)
+    Backend->>Database: 参加者情報を保存 (INSERT)
+    Database-->>Backend: 保存結果 (成功/失敗)
+    alt 保存成功
+        Backend-->>Frontend: レスポンス (HTTP 200, JSON形式: success)
+        Frontend->>Client: 登録完了メッセージ表示
+    else 保存失敗
+        Backend-->>Frontend: レスポンス (HTTP 400/409, JSON形式: error)
+        Frontend->>Client: エラーメッセージ表示
+    end
+```
