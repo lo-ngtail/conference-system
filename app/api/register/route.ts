@@ -1,5 +1,16 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { Pool } from 'pg'; // pg ライブラリをインポート
+
+// PostgreSQL 接続設定
+const pool = new Pool({
+  host: process.env.POSTGRES_HOST || 'localhost',
+  port: process.env.POSTGRES_PORT ? parseInt(process.env.POSTGRES_PORT, 10) : 5432,
+  database: process.env.POSTGRES_DATABASE || 'mydatabase',
+  user: process.env.POSTGRES_USER || 'myuser',
+  password: process.env.POSTGRES_PASSWORD || 'mypassword',
+});
+
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,18 +42,33 @@ export async function POST(request: NextRequest) {
     }
 
 
-    // TODO: データベースへの保存処理を実装
+    // データベースへの保存処理
+    const client = await pool.connect(); // クライアントを取得
+    try {
+      const result = await client.query(
+        'INSERT INTO participants (name, affiliation, email, phone, title, privacy_policy_agreed, registration_date) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+        [name, affiliation, email, phone, title, privacy_policy_agreed, new Date()]
+      );
 
-    return NextResponse.json({
-      status: 'success',
-      message: '登録が完了しました。',
-      registration_id: 'dummy_id', // 仮のID
-    });
+      const registration_id = result.rows[0].id;
+
+
+      return NextResponse.json({
+        status: 'success',
+        message: '登録が完了しました。',
+        registration_id: registration_id,
+      });
+    } finally {
+      client.release(); // クライアントを解放
+    }
+
+
   } catch (error) {
+    console.error('登録処理エラー:', error); // エラーログ
     return NextResponse.json(
       {
         status: 'error',
-        message: 'エラーが発生しました。',
+        message: '登録処理中にエラーが発生しました。',
       },
       { status: 500 }
     );
